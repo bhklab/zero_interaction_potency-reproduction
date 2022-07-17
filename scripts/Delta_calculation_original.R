@@ -12,21 +12,22 @@ library(compiler)
 library(truncnorm)
 
 # Set working directory
-setwd("/home/bhagwan/Dropbox/PhD_Projects/Project-5_VBS/Manuscript/r_codes")
+#setwd("/home/bhagwan/Dropbox/PhD_Projects/Project-5_VBS/Manuscript/r_codes")
 # Source the functions file 
-source(paste(getwd(),"/functions.R",sep=""))
+source(file.path(getwd(), "functions_original.R"))
 
 # Set the output folder 
-cdir<-getwd()
-myFolder<-c("Delta_score") ### if it is NULL, it automatically generates
-if(!is.null(myFolder)){
-	dir.create(file.path(cdir,myFolder))
-	setwd(file.path(cdir,myFolder))
-}
+#cdir<-getwd()
+#myFolder<-c("Delta_score_original") ### if it is NULL, it automatically generates
+#if(!dir.exists(myFolder)){
+#	dir.create(file.path(cdir,myFolder))
+#	#setwd(file.path(cdir,myFolder))
+#}
+## Output files go to ../data
 
 # Read response and metadata
-response<-read.csv("/home/bhagwan/Dropbox/PhD_Projects/Project-5_VBS/data/Griner_et_al/241/responses.csv")
-metadata<-read.csv("/home/bhagwan/Dropbox/PhD_Projects/Project-5_VBS/data/Griner_et_al/241/metadata.csv")
+response<-read.csv("../data/responses.csv")
+metadata<-read.csv("../data/metadata.csv")
 
 # get unique bolck ids
 blockId<-unique(response$BlockId)
@@ -99,6 +100,6 @@ colnames(pair.list)<-c("index","drug1","drug2","cell.line","plate")
  delta_score[i,4] = output
 
 }
-write.csv(delta_score,"Delta_score.csv",row.names=F)
+write.csv(delta_score,"../data/Delta_score_original.csv",row.names=F)
 
 

@@ -10,27 +10,14 @@ library(reshape2)
 library(plotrix)
 library(compiler)
 library(truncnorm)
-
 library(data.table)
 
-# Set working directory
-#setwd("/home/bhagwan/Dropbox/PhD_Projects/Project-5_VBS/Manuscript/r_codes")
 # Source the functions file 
-source(paste(getwd(), "/functions.R", sep = ""))
-
-# Set the output folder 
-cdir <- getwd()
-myFolder <- c("Delta_score") ### if it is NULL, it automatically generates
-if(!dir.exists(file.path(cdir, myFolder))) {
-    dir.create(file.path(cdir, myFolder))
-    setwd(file.path(cdir, myFolder))
-} else {
-    setwd(file.path(cdir, myFolder))
-}
+source(file.path(getwd(), "/functions.R"))
 
 # Read response and metadata
-response <- fread("../responses.csv")
-metadata <- fread("../metadata.csv")
+response <- fread("../data/responses.csv")
+metadata <- fread("../data/metadata.csv")
 
 # get unique bolck ids
 # 36 rows per block ID, 6 x 6 experiment
@@ -50,7 +37,11 @@ for(i in seq_along(blockId)){ #
     plate.file <- acast(dataM, Col ~ Row, value.var="Value")
     # response matrix indexed by [Col, Row]
     plate.file <- apply(t(apply(t(plate.file), 2, rev)), 2, rev)
-    plate.mat <- 100 - plate.file ## so response is viability in the original data?
+
+    plate.mat <- 100 - plate.file ## viability in the original data?
+    ## This will result in negative response values,
+    ## since there are response > 100
+
     plate.mat <- apply(plate.mat, 2, as.numeric)
     
     
@@ -102,16 +93,18 @@ for(i in seq_along(blockId)){ #
 ######################## Two Way Fitting #######################
 # Single plate analysis
 
-    raw_matrix <- output_baseline[[1]] # raw matrix
-    cor_matrix <- output_baseline[[2]] # matrix after baseline correction
-    drug_pair <- output_baseline[[3]] # drug names
+    if (!is.null(output_baseline)) {
+        raw_matrix <- output_baseline[[1]] # raw matrix
+        cor_matrix <- output_baseline[[2]] # matrix after baseline correction
+        drug_pair <- output_baseline[[3]] # drug names
 
-    output <- twowayfitting(cor_matrix, drug_pair)
+        output <- twowayfitting(cor_matrix, drug_pair)
 
-    delta_score[i, 1] <- blockId[i]
-    delta_score[i, 2] <- unique(colnames(plate.mat))
-    delta_score[i, 3] <- unique(rownames(plate.mat))
-    delta_score[i, 4] <- output
+        delta_score[i, 1] <- blockId[i]
+        delta_score[i, 2] <- unique(colnames(plate.mat))
+        delta_score[i, 3] <- unique(rownames(plate.mat))
+        delta_score[i, 4] <- output
+    }
 }
-write.csv(delta_score, "Delta_score.csv", row.names = F)
+write.csv(delta_score, "../data/Delta_score.csv", row.names = F)
 
