@@ -38,21 +38,24 @@ if (!require(required_pkgs, quietly = TRUE))
     install.packages(setdiff(required_pkgs, rownames(installed.packages())))
 
 ## original paper result
-source(file.path(getwd(), "Delta_calculation_original.R"))
+source(file.path(getwd(), "Delta_calculation.R"))
 
 ## result after changing logistic model to log-logistic
 ## cannot define parameter boundaries due to many negative responses
-source(file.path(getwd(), "Delta_calculation.R"))
+source(file.path(getwd(), "Delta_calculation_annotated.R"))
 
 library(data.table)
 
 delta_score_published <- fread("../data/Delta_score_original.csv")
 delta_score_new <- fread("../data/Delta_score.csv")
 
+## Merge old and new delta scores
+delta_score <- merge.data.table(
+    x = delta_score_published,
+    y = delta_score_new,
+    by = c("blockId", "Drug1", "Drug2"),
+    suffixes = c("_published", "_new")
+)
+
 ## Experiments with different delta scores
-delta_score_diff <- delta[
-    which(
-        sign(delta_score_published$Delta) !=
-        sign(delta_score_new$Delta)
-    )
-] 
+delta_score[sign(Delta_published) != sign(Delta_new)]
