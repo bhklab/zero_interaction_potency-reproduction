@@ -1,0 +1,419 @@
+---
+title: "ZIP R Source Code Analysis"
+output:
+    html_document:
+        toc: true
+        fig_caption: true
+---
+
+\newcommand{\MIN}{\operatorname{MIN}}
+\newcommand{\MAX}{\operatorname{MAX}}
+\newcommand{\SLOPE}{\operatorname{SLOPE}}
+\newcommand{\IC50}{\operatorname{IC50}}
+\newcommand{\expp}[1]{\operatorname{exp\Bigl\{#1\Bigr\}}}
+\newcommand{\lnn}[1]{\operatorname{\ln\left(#1\right)}}
+\newcommand{\hill}[1]{\operatorname{\left(#1\right)}}
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = file.path(getwd(), "scripts"))
+```
+
+# Prep
+
+## Download and Install Required Packages
+
+Install and load necessary packages
+
+```{r eval=TRUE, results="hide"}
+required_pkgs <- c(
+    "drc",
+    "reshape2",
+    "compiler",
+    "truncnorm",
+    "data.table"
+)
+if (!require(required_pkgs, quietly = TRUE))
+    install.packages(setdiff(required_pkgs, rownames(installed.packages())))
+```
+
+## Download the Mathews Griner Drug Combination Screening Dataset
+
+```{r}
+## Data directory
+if (!dir.exists("../data"))
+    dir.create(path = "../data")
+
+## Download dataset
+if (!file.exists("../data/Griner_et_al.zip")) {
+    utils::download.file(
+        url = "https://ars.els-cdn.com/content/image/1-s2.0-S2001037015000422-mmc4.zip",
+        method = "wget",
+        destfile = "../data/Griner_et_al.zip"
+    )
+}
+
+if (!all(file.exists(
+    c("../data/metadata.csv",
+      "../data/responses.csv")
+    ))) {
+    utils::unzip(
+        zipfile = "../data/Griner_et_al.zip",
+        files = c("metadata.csv", "responses.csv"), ## extract dataset files only
+        exdir = "../data"
+    )
+}
+```
+
+## Load Required Packages and Data
+
+```{r}
+library(drc)
+library(caTools)
+library(reshape2)
+library(compiler)
+library(truncnorm)
+library(data.table)
+# Read response and metadata
+response <- fread("../data/responses.csv")
+metadata <- fread("../data/metadata.csv")
+
+# get unique block ids
+# 36 rows per block ID, 6 x 6 experiment
+blockId <- unique(response$BlockId)
+```
+
+Preview for the experiment metadata
+
+```{r echo=FALSE}
+rmarkdown::paged_table(metadata)
+```
+
+Preview for the response data (viability)
+
+```{r echo=FALSE}
+rmarkdown::paged_table(response)
+```
+
+## Choose an experiment
+
+To walk through a curve-fitting step in producing delta scores,
+let's fix a single <tt>blockId</tt> for one drug combination experiment:
+
+```{r}
+set.seed(42) ## For a reproducible result
+i <- sample(blockId, 1)
+blockIndex <- which(response$BlockId %in% blockId[i])
+dataM <- response[blockIndex, c(2,3,4)] # response for blockIndex
+```
+
+Check the selected <tt>blockId</tt> and its response indices:
+
+```{r}
+i
+blockIndex
+```
+
+We prepare an input for curve-fitting as if it was a step in a loop over <tt>blockId</tt>.
+The code snippet below is from the R source code of the ZIP paper (reformatted):
+
+```{r}
+#  Making plate matrix file
+plate.file <- acast(dataM, Col ~ Row, value.var="Value")
+# response matrix indexed by [Col, Row]
+plate.file <- apply(t(apply(t(plate.file), 2, rev)), 2, rev)
+
+plate.mat <- 100 - plate.file ## viability in the original data
+## This will result in negative response values,
+## since there are response > 100
+
+plate.mat <- apply(plate.mat, 2, as.numeric)
+    
+# Mapping concentration range file
+meta.blockIndex <- which(metadata$BlockId %in% blockId[i])
+    
+drug1name <- as.character(as.matrix(metadata$RowName[meta.blockIndex])) ##colNames
+drug2name <- "Ibrutinib" ## PCI-32765
+    
+colnames(plate.file) <- rep(drug1name,ncol(plate.file))
+rownames(plate.file) <- rep(drug2name,nrow(plate.file))
+    
+drug1conc <- as.character(as.matrix(metadata$RowConcs[meta.blockIndex]))
+drug1conc <- rev(as.numeric(unlist(strsplit(drug1conc, ",")))) * 2
+drug2conc <- as.character(as.matrix(metadata$ColConcs[meta.blockIndex]))
+drug2conc <- rev(as.numeric(unlist(strsplit(drug2conc, ",")))) * 2
+    
+conc.file <- rbind(drug1conc,drug2conc)
+conc.file <- cbind(rbind(drug1name, drug2name), conc.file)
+conc.range <- conc.file
+
+## round dose to one digit after decimal point
+conc.range[1, 2:ncol(conc.range)] <- as.character(
+    round(as.numeric(conc.range[1, 2:ncol(conc.range)]), digits = 1)
+)
+conc.range[2, 2:ncol(conc.range)] <- as.character(
+    round(as.numeric(conc.range[2, 2:ncol(conc.range)]), digits = 1)
+)
+
+# Add col names and row names to plate mat
+colnames(plate.mat) <- colnames(plate.file)
+rownames(plate.mat) <- rownames(plate.file)
+    
+# Making drug combination file
+pairs.file <- matrix(NA, 1, 5)
+pairs.file[1,] <- c(1, drug1name, drug2name, "cellline", 1)
+pairs.file <- as.data.frame(pairs.file)
+pair.list <- pairs.file
+colnames(pair.list) <- c("index", "drug1", "drug2", "cell.line", "plate")
+```
+
+Note that the drug concentrations have been doubled in the step above.
+We haven't found any justification for doing so.
+In addition, in converting viability values to response (inhibition%),
+they were truncated by the maximum inhibition percentage of 100 as in <tt>plate.mat <- 100 - plate.file</tt>,
+which will result in negative response values in fitting as most viability values in the original dataset are above 100 at low concentration, and the estimated parameters could lack biochemical interpretations.
+
+# Single-drug Baseline Correction
+
+The baseline correction consists of 2 steps: fitting dose-response curves for two single agents in a drug combination respectively and calculate the baseline by taking the average of the minimum responses predicted by their dose-response curves.
+The justification for performing this correction is neither explained in the method section of the paper, nor in the supplementary materials.
+
+Here, we refer to the Hill curve as the dose-response curve.
+
+## Pre-process Input for Dose-response Curve Fitting
+
+The following code snippet is from <tt>SDbaselineCor</tt> in <tt>functions.R</tt>:
+
+```{r}
+conc.range <- apply(conc.range, 2, as.character)
+pair.list$index <- as.character(pair.list$index)
+pm <- as.matrix(plate.mat)
+pm <- apply(pm, 2, as.numeric)
+pm[nrow(plate.mat), ncol(plate.mat)] <- NA ## ???Why
+    
+drugpair <- subset(pair.list, pair.list$index == 1) ##???
+d1c <- subset(
+    conc.range,
+    conc.range[,1] == drugpair$drug1
+)[, 2:ncol(conc.range)]
+#conc test range for drug 2 (2nd col in vv/pairslist)
+d2c <- subset(
+    conc.range,
+    conc.range[,1] == drugpair$drug2
+)[, 2:ncol(conc.range)] 
+
+## create a viability matrix by doses
+rownames(pm) <- as.character(d2c)
+colnames(pm) <- as.character(d1c)
+    
+# print(pm)
+d1 <- as.vector(unlist(rep(d1c,times = ncol(pm)))) 
+d2 <- as.vector(unlist(rep(d2c,times = ncol(pm)))) 
+    
+## repeat 6 concentrations by 6 times for each drug
+concd1 <- as.vector(sapply(d1c, rep, times = nrow(pm)))
+concd2 <- as.vector(sapply(d2c, rep, times = nrow(pm)))
+
+## Effect of adding row drug to column drug
+coleffect <- as.vector(as.matrix(pm))
+## Effect of adding column drug to row drug
+roweffect <- as.vector(t(as.matrix(pm))) 
+    
+rowwise <- data.frame(as.numeric(d1), as.numeric(concd2), roweffect)
+# data combined row wise, rows are concatenated
+colwise <- data.frame(as.numeric(d2), as.numeric(concd1), coleffect)
+# data combined column wise, columns are concatenated
+    
+## Add drug 2 to drug 1
+colnames(rowwise)[c(1,2)] <- c("conc_d1", "conc_d2")
+## Add drug 1 to drug 2
+colnames(colwise)[c(1,2)] <- c("conc_d2", "conc_d1")
+    
+## monotherapy response of drug 1
+single1 <- rowwise[1:nrow(plate.mat), c(1, 3)]
+# single drug denoted as the first row in the original matrix
+colnames(single1) <- c("conc","effect")
+    
+## monotherapy response of drug 2
+single2 <- colwise[1:ncol(plate.mat), c(1, 3)]
+# single drug denoted as the first column in the original matrix
+colnames(single2) <- c("conc","effect")
+```
+
+
+## Fitting Single-drug Dose-response Curve
+
+The function below for fitting a single-drug dose-response curve is taken from the source code:
+
+```{r}
+get_fittedsingledrugs <- function(drug_response){	
+	#Estimate the starting parameters ic50
+    drug_response <- as.data.frame(apply(drug_response,2,as.numeric))
+	estimate_param <- tryCatch({ 
+        drm(effect ~ conc,
+            data = drug_response,
+            fct = LL.4(
+                fixed = c(NA,NA,NA,NA),
+                names = c("SLOPE","MIN","MAX","IC50")
+            ),
+            na.action = na.omit,
+            control = drmc(errorm = FALSE))
+        }, warning = function(w){
+            drm(effect ~ conc,
+                data = drug_response,
+                fct = L.4(
+                    fixed = c(NA,NA,NA,NA),
+                    names = c("SLOPE","MIN","MAX","IC50")
+                ),
+                na.action = na.omit)
+        },error = function(e){
+            drm(effect ~ conc,
+                data = drug_response,
+                fct = L.4(
+                    fixed = c(NA,NA,NA,NA),
+                    names = c("SLOPE","MIN","MAX","IC50")
+                ),
+                na.action = na.omit)
+	    })
+    fitted(estimate_param)
+    # PR(estimate_param,drug_response$conc)
+}
+```
+
+This function returns the response values predicted by the fitted Hill curve for each corresponding dose concentration.
+We can notice 2 potential issues here.
+First, bounds were not placed on the values of each of the 4 parameters to ensure biological interpretability.
+Since drugs were assumed not to increase the fitness of malignant cells,
+both MIN and MAX need to be constrained in the interval $[0, 100]$.
+For a reasonable range of drug dose to administer, IC50 should be assumed within $[1pM, 1M]$.
+As the concentrations were measured in micromole $\mu M$ according to the metadata,
+the constraint for IC50 will be $[10^{-6}, 10^6]$.
+As the Hill coefficient SLOPE controls the steepness of the sigmoid curve,
+when inhibition% is used to measure drug responses,
+the non-decreasing monotonicity must be maintained, as, again,
+drugs were assumed not to increase the fitness of malignant cells.
+Unconstrained optimisation in estimating SLOPE can result in negative value for the parameter SLOPE,
+which flips the monotonicity and hence breaks the assumption.
+Second, on failed convergence of fitting with <tt>LL.4</tt>,
+the function would re-fit the curve with <tt>L.4</tt> instead.
+By the documentation of the <tt>drc</tt> package, <tt>LL.4</tt> fits the following regression function:
+
+\[
+LL.4(x) = \MIN + \frac{\MAX - \MIN}{1 + \expp{\SLOPE \left( \lnn{x} - \lnn{IC50} \right) }}
+\]
+
+While <tt>L.4</tt> fits the following regression function:
+
+\[
+L.4(x) = \MIN + \frac{\MAX - \MIN}{1 + \expp{\SLOPE \left( x - IC50 \right) }}
+\]
+The Hill curve is described by
+
+\begin{align}
+\hill{x} &= \MIN + \frac{\MAX - \MIN}{1 + \Bigl( \frac{x}{IC50} \Bigr)^{\SLOPE}} \\
+         &= \MIN + \frac{\MAX - \MIN}{1 + \expp{ \lnn{ \Bigl( \frac{x}{IC50} \Bigr)^{\SLOPE} } } } \\
+         &= \MIN + \frac{\MAX - \MIN}{1 + \expp{ \SLOPE \lnn{ \Bigl( \frac{x}{IC50} \Bigr) } } } \\
+         &= \MIN + \frac{\MAX - \MIN}{1 + \expp{ \SLOPE \lnn{ \Bigl( \frac{x}{IC50} \Bigr) } } } \\
+         &= \MIN + \frac{\MAX - \MIN}{1 + \expp{ \SLOPE \Bigl( \lnn{x} - \lnn{IC50} \Bigr) } }
+\end{align}
+which is the same as the log-logistic regression $LL.4$.
+If we fit $L.4$, then we will fit a Hill curve with $e^x$ rather than $x$ itself:
+\begin{align}
+L.4(x) &= \MIN + \frac{\MAX - \MIN}{1 + \expp{\SLOPE \left( x - IC50 \right) }} \\
+       &= \MIN + \frac{\MAX - \MIN}{1 + \expp{\SLOPE \left( \lnn{e^x} - \lnn{e^{IC50}} \right) }} \\
+       &= \MIN + \frac{\MAX - \MIN}{1 + \expp{\SLOPE \left( \lnn{e^x} - \lnn{e^{IC50}} \right) }} \\
+       &= \MIN + \frac{\MAX - \MIN}{1 + \expp{ \lnn{ \Bigl( \frac{e^x}{e^{IC50}} \Bigr)^{\SLOPE} }} \\
+       &= \MIN + \frac{\MAX - \MIN}{1 + \Bigl( \frac{e^x}{e^{IC50}} \Bigr)^{\SLOPE}}
+\end{align}
+which is different from the right form of the Hill equation. To see difference in their results:
+
+```{r}
+drug_response <- single1[-1, ]
+drug_name <- pair.list["drug1"]
+drug_response <- as.data.frame(apply(drug_response,2,as.numeric))
+LL4_fit <- drm(
+    effect ~ conc,
+    data = drug_response,
+    fct = LL.4(
+        fixed = c(NA,NA,NA,NA),
+        names = c("SLOPE","MIN","MAX","IC50")
+    ),
+    na.action = na.omit,
+    control = drmc(errorm = FALSE)
+)
+L4_fit <- drm(
+    effect ~ conc,
+    data = drug_response,
+    fct = L.4(
+        fixed = c(NA,NA,NA,NA),
+        names = c("SLOPE","MIN","MAX","IC50")
+    ),
+    na.action = na.omit,
+    control = drmc(errorm = FALSE)
+)
+```
+
+Results:
+
+```{r}
+LL4_fit
+```
+
+```{r}
+L4_fit
+```
+
+To visually assess the fitting result:
+
+```{r}
+library(grDevices)
+LL4_coefs <- coef(LL4_fit)
+L4_coefs <- coef(L4_fit)
+cols <- palette(rainbow(2))
+plot(NULL, xlim = c(10e-10, 10e10), ylim = c(-100, 120),
+     ylab = paste("inhibition%"),
+     xlab = paste0("log10[", "drug_name", "]"), log = "x")
+## Plot LL.4
+curve(
+        LL4_coefs[2] + (
+            LL4_coefs[3] - LL4_coefs[2]
+        ) / (
+            1 + exp(
+                LL4_coefs[1] * (log(x) - log( log10(LL4_coefs[4]) ))
+            )
+        )
+    , from = 10e-10, to = 10e10, add = TRUE, col = cols[1], lwd = 1.5, lty = 1
+)
+## Plot L.4
+curve(
+        L4_coefs[2] + (
+            L4_coefs[3] - LL4_coefs[2]
+        ) / (
+            1 + exp(
+                L4_coefs[1] * (x - (L4_coefs[4]))
+            )
+        )
+    , from = 10e-10, to = 10e10, add = TRUE, col = cols[2], lwd = 1.5, lty = 2
+)
+points(x = log10(drug_response$conc),
+       y = drug_response$effect)
+legend(10, -50,
+       legend = c("LL4", "L4"),
+       col = cols,
+       lty = c(1, 2),
+       box.lty = 0
+)
+```
+
+Note that it's difficult to plot these two curves on the same scale of log-10 transformed $x$ for comparison, since $x$ were fitted on different scales ($\lnn{x}$ vs $x$).
+We will go into further details about why in the next section,
+as $L.4$ completely replaced $LL.4$ in 2-way curve fitting.
+
+# 2-way Curve Fitting
+
+
+
+
+
+
+
+

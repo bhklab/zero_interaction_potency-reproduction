@@ -224,7 +224,7 @@ twowayfitting <- function(cor_matrix, drug_pair, test_drc = FALSE) {
             lowerl = ifelse(test_drc, c(0, 0, 0, 1e-6),
                             c(-Inf, -Inf, -Inf, -Inf)), ## remove boundaries in reproduction
             upperl = ifelse(test_drc, c(4, 100, 100, 1e+6),
-                            c(-Inf, -Inf, -Inf, -Inf)),
+                            c(Inf, Inf, Inf, Inf)),
             na.action = na.omit,
 
             control = drmc( ## set control argument

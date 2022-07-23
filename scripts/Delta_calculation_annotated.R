@@ -51,11 +51,9 @@ for(i in seq_along(blockId)){ #
     drug1name <- as.character(as.matrix(metadata$RowName[meta.blockIndex])) ##colNames
     drug2name <- "Ibrutinib" ## PCI-32765
     
-    ## Is this necessary??
     colnames(plate.file) <- rep(drug1name,ncol(plate.file))
     rownames(plate.file) <- rep(drug2name,nrow(plate.file))
     
-    ## Why multiply by 2 ???
     drug1conc <- as.character(as.matrix(metadata$RowConcs[meta.blockIndex]))
     drug1conc <- rev(as.numeric(unlist(strsplit(drug1conc, ",")))) * 2
     drug2conc <- as.character(as.matrix(metadata$ColConcs[meta.blockIndex]))
