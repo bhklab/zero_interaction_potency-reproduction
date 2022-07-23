@@ -1736,7 +1736,9 @@ dataM &lt;- response[blockIndex, c(2,3,4)] # response for blockIndex</code></pre
 <pre class="r"><code>i</code></pre>
 <pre><code>## [1] 49</code></pre>
 <pre class="r"><code>blockIndex</code></pre>
-<pre><code>##  [1] 1729 1730 1731 1732 1733 1734 1735 1736 1737 1738 1739 1740 1741 1742 1743 1744 1745 1746 1747 1748 1749 1750 1751 1752 1753 1754 1755 1756 1757 1758 1759 1760 1761 1762 1763 1764</code></pre>
+<pre><code>##  [1] 1729 1730 1731 1732 1733 1734 1735 1736 1737 1738 1739 1740 1741 1742
+## [15] 1743 1744 1745 1746 1747 1748 1749 1750 1751 1752 1753 1754 1755 1756
+## [29] 1757 1758 1759 1760 1761 1762 1763 1764</code></pre>
 <p>We prepare an input for curve-fitting as if it was a step in a loop over <tt>blockId</tt>. The code snippet below is from the R source code of the ZIP paper (reformatted):</p>
 <pre class="r"><code>#  Making plate matrix file
 plate.file &lt;- acast(dataM, Col ~ Row, value.var=&quot;Value&quot;)
@@ -1898,13 +1900,13 @@ L.4(x) = \operatorname{MIN}+ \frac{\operatorname{MAX}- \operatorname{MIN}}{1 + \
          &amp;= \operatorname{MIN}+ \frac{\operatorname{MAX}- \operatorname{MIN}}{1 + \operatorname{exp\Bigl\{ \operatorname{SLOPE}\operatorname{\ln\left( \Bigl( \frac{x}{IC50} \Bigr) \right)} \Bigr\}} } \\
          &amp;= \operatorname{MIN}+ \frac{\operatorname{MAX}- \operatorname{MIN}}{1 + \operatorname{exp\Bigl\{ \operatorname{SLOPE}\operatorname{\ln\left( \Bigl( \frac{x}{IC50} \Bigr) \right)} \Bigr\}} } \\
          &amp;= \operatorname{MIN}+ \frac{\operatorname{MAX}- \operatorname{MIN}}{1 + \operatorname{exp\Bigl\{ \operatorname{SLOPE}\Bigl( \operatorname{\ln\left(x\right)} - \operatorname{\ln\left(IC50\right)} \Bigr) \Bigr\}} }
-\end{align}\]</span> which is the same as the log-logistic regression <span class="math inline">\(LL.4\)</span>. If we fit <span class="math inline">\(L.4\)</span>, then we will fit a Hill curve with <span class="math inline">\(e^x\)</span> rather than <span class="math inline">\(x\)</span> itself: <span class="math display">\[\begin{align}
-L.4(x) &amp;= \operatorname{MIN}+ \frac{\operatorname{MAX}- \operatorname{MIN}}{1 + \operatorname{exp\Bigl\{\operatorname{SLOPE}\left( x - IC50 \right) \Bigr\}}} \\
-       &amp;= \operatorname{MIN}+ \frac{\operatorname{MAX}- \operatorname{MIN}}{1 + \operatorname{exp\Bigl\{\operatorname{SLOPE}\left( \operatorname{\ln\left(e^x\right)} - \operatorname{\ln\left(e^{IC50}\right)} \right) \Bigr\}}} \\
-       &amp;= \operatorname{MIN}+ \frac{\operatorname{MAX}- \operatorname{MIN}}{1 + \operatorname{exp\Bigl\{\operatorname{SLOPE}\left( \operatorname{\ln\left(e^x\right)} - \operatorname{\ln\left(e^{IC50}\right)} \right) \Bigr\}}} \\
-       &amp;= \operatorname{MIN}+ \frac{\operatorname{MAX}- \operatorname{MIN}}{1 + \operatorname{exp\Bigl\{ \operatorname{\ln\left( \Bigl( \frac{e^x}{e^{IC50}} \Bigr)^{\operatorname{SLOPE}}\right)}\Bigr\}}} \\
-       &amp;= \operatorname{MIN}+ \frac{\operatorname{MAX}- \operatorname{MIN}}{1 + \Bigl( \frac{e^x}{e^{IC50}} \Bigr)^{\operatorname{SLOPE}}}
-\end{align}\]</span> which is different from the right form of the Hill equation. To see difference in their results:</p>
+\end{align}\]</span> which is the same as the log-logistic regression <span class="math inline">\(LL.4\)</span>. <!--
+If we fit $L.4$, then we will fit a Hill curve with $e^x$ rather than $x$ itself:
+\begin{align}
+L.4(x) &= \MIN + \frac{\MAX - \MIN}{1 + \expp{\SLOPE \left( x - IC50 \right) }} \\
+\end{align}
+which is different from the right form of the Hill equation. 
+--> To see difference in their results:</p>
 <pre class="r"><code>drug_response &lt;- single1[-1, ]
 drug_name &lt;- pair.list[&quot;drug1&quot;]
 drug_response &lt;- as.data.frame(apply(drug_response,2,as.numeric))

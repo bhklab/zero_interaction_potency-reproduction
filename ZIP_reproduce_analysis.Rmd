@@ -315,15 +315,14 @@ The Hill curve is described by
          &= \MIN + \frac{\MAX - \MIN}{1 + \expp{ \SLOPE \Bigl( \lnn{x} - \lnn{IC50} \Bigr) } }
 \end{align}
 which is the same as the log-logistic regression $LL.4$.
+<!--
 If we fit $L.4$, then we will fit a Hill curve with $e^x$ rather than $x$ itself:
 \begin{align}
 L.4(x) &= \MIN + \frac{\MAX - \MIN}{1 + \expp{\SLOPE \left( x - IC50 \right) }} \\
-       &= \MIN + \frac{\MAX - \MIN}{1 + \expp{\SLOPE \left( \lnn{e^x} - \lnn{e^{IC50}} \right) }} \\
-       &= \MIN + \frac{\MAX - \MIN}{1 + \expp{\SLOPE \left( \lnn{e^x} - \lnn{e^{IC50}} \right) }} \\
-       &= \MIN + \frac{\MAX - \MIN}{1 + \expp{ \lnn{ \Bigl( \frac{e^x}{e^{IC50}} \Bigr)^{\SLOPE}}}} \\
-       &= \MIN + \frac{\MAX - \MIN}{1 + \Bigl( \frac{e^x}{e^{IC50}} \Bigr)^{\SLOPE}}
 \end{align}
-which is different from the right form of the Hill equation. To see difference in their results:
+which is different from the right form of the Hill equation. 
+-->
+To see difference in their results:
 
 ```{r}
 drug_response <- single1[-1, ]
